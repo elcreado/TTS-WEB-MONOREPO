@@ -9,7 +9,11 @@ function App() {
   const [chatMessages, setChatMessages] = useState<any[]>([]);
 
   useEffect(() => {
-    const socket = new WebSocket('ws://localhost:8080');
+    const SOCKET_URL = import.meta.env.PROD
+      ? 'wss://tts-web-monorepo-1.onrender.com'
+      : "ws://localhost:8080";
+
+    const socket = new WebSocket(SOCKET_URL);
 
     socket.onopen = () => {
       console.log('Connected to WebSocket');

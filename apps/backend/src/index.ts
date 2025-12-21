@@ -6,8 +6,6 @@ const wss = new WebSocketServer({ port: Number(PORT) });
 
 const { WebcastPushConnection } = require('tiktok-live-connector');
 
-// ... imports
-
 wss.on("connection", (ws) => {
     console.log("Client connected");
 
