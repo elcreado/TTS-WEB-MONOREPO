@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import './App.css';
 
 function App() {
@@ -7,6 +7,49 @@ function App() {
   const [lastMessage, setLastMessage] = useState<string>('');
   const [username, setUsername] = useState<string>('');
   const [chatMessages, setChatMessages] = useState<any[]>([]);
+
+  // TTS Queue Logic
+  const ttsQueue = useRef<string[]>([]);
+  const isSpeaking = useRef(false);
+
+  const processQueue = () => {
+    if (isSpeaking.current || ttsQueue.current.length === 0) return;
+
+    isSpeaking.current = true;
+    const text = ttsQueue.current.shift(); // Get the next message
+
+    if (text) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      // Try to detect Spanish, otherwise default
+      utterance.lang = 'es-ES';
+
+      utterance.onend = () => {
+        isSpeaking.current = false;
+        // Small cooldown to prevent overlap feeling
+        setTimeout(() => processQueue(), 200);
+      };
+
+      utterance.onerror = (e) => {
+        console.error("TTS Error:", e);
+        isSpeaking.current = false;
+        processQueue();
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } else {
+      isSpeaking.current = false;
+    }
+  };
+
+  const speak = (text: string) => {
+    // Logic: Max queue size 2.
+    // If full (>=2), remove the oldest pending message (index 0) to make room for new one.
+    if (ttsQueue.current.length >= 2) {
+      ttsQueue.current.shift();
+    }
+    ttsQueue.current.push(text);
+    processQueue();
+  };
 
   useEffect(() => {
     const SOCKET_URL = import.meta.env.PROD
@@ -25,7 +68,12 @@ function App() {
       console.log('Message from server:', data);
 
       if (data.type === 'TIKTOK_CHAT') {
+        const comment = data.data.comment;
+        const uniqueId = data.data.uniqueId;
+        const fullMessage = `${uniqueId} dice: ${comment}`;
+
         setChatMessages(prev => [...prev, data.data]);
+        speak(fullMessage); // Trigger TTS
       } else if (data.type === 'TIKTOK_STATUS') {
         setLastMessage(`TikTok Status: ${data.status}`);
       } else {
