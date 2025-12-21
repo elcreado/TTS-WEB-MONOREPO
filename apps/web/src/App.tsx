@@ -7,6 +7,7 @@ function App() {
   const [lastMessage, setLastMessage] = useState<string>('');
   const [username, setUsername] = useState<string>('');
   const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [tiktokStatus, setTiktokStatus] = useState<string>('DISCONNECTED');
 
   // TTS Queue Logic
   const ttsQueue = useRef<string[]>([]);
@@ -72,9 +73,12 @@ function App() {
         const uniqueId = data.data.uniqueId;
         const fullMessage = `${uniqueId} dice: ${comment}`;
 
+        // If we receive chats, we are definitely connected
+        setTiktokStatus('CONNECTED');
         setChatMessages(prev => [...prev, data.data]);
         speak(fullMessage); // Trigger TTS
       } else if (data.type === 'TIKTOK_STATUS') {
+        setTiktokStatus(data.status);
         setLastMessage(`TikTok Status: ${data.status}`);
       } else {
         setLastMessage(JSON.stringify(data));
@@ -99,42 +103,82 @@ function App() {
     }
   };
 
-  const sendMessage = () => {
+  const disconnectFromTikTok = () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({ type: 'TEST', content: 'Hello from Frontend!' });
-      ws.send(message);
-      console.log('Sent:', message);
-    } else {
-      console.warn('WebSocket is not connected');
+      ws.send(JSON.stringify({ type: 'DISCONNECT_TIKTOK' }));
+      // Stop TTS
+      window.speechSynthesis.cancel();
+      ttsQueue.current = [];
+      isSpeaking.current = false;
     }
   };
 
+
+
+  const isTiktokConnected = tiktokStatus === 'CONNECTED';
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom of chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
   return (
     <>
-      <h1>Tiktok TTS</h1>
       <div className="card">
-        <p>Status: {status}</p>
-        <p>Last Message: {lastMessage}</p>
+        <h1>Tiktok TTS</h1>
 
-        <div style={{ margin: '20px 0', borderTop: '1px solid #ccc', paddingTop: '10px' }}>
+        {/* Status Bar */}
+        <div className="status-bar">
+          <div className="status-item">
+            <div className={`status-dot ${status === 'Connected' ? 'connected' : 'disconnected'}`}></div>
+            <span>Server: {status}</span>
+          </div>
+          <div className="status-item">
+            <div className={`status-dot ${isTiktokConnected ? 'connected' : 'disconnected'}`}></div>
+            <span>TikTok: {tiktokStatus}</span>
+          </div>
+        </div>
+
+        <div className="last-message">
+          Last Event: {lastMessage}
+        </div>
+
+        {/* Controls */}
+        <div className="control-panel">
           <input
             type="text"
             placeholder="TikTok Username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            disabled={isTiktokConnected}
           />
-          <button onClick={connectToTikTok}>Connect TikTok</button>
+          {!isTiktokConnected ? (
+            <button className="btn-primary" onClick={connectToTikTok}>
+              Connect TikTok
+            </button>
+          ) : (
+            <button className="btn-danger" onClick={disconnectFromTikTok}>
+              Disconnect
+            </button>
+          )}
         </div>
 
-        <button onClick={sendMessage}>
-          Send Test Message
-        </button>
 
-        <div style={{ textAlign: 'left', marginTop: '20px', maxHeight: '300px', overflowY: 'auto', border: '1px solid #333', padding: '10px' }}>
-          <h3>Chat:</h3>
+        {/* Chat Log */}
+        <div className="chat-container">
+          {chatMessages.length === 0 && (
+            <p style={{ color: '#666', textAlign: 'center', marginTop: '20px' }}>
+              Waiting for chat messages...
+            </p>
+          )}
           {chatMessages.map((msg, idx) => (
-            <div key={idx}><strong>{msg.uniqueId}:</strong> {msg.comment}</div>
+            <div key={idx} className="chat-bubble">
+              <span className="chat-user">{msg.uniqueId}</span>
+              <span className="chat-text">{msg.comment}</span>
+            </div>
           ))}
+          <div ref={chatEndRef} />
         </div>
       </div>
     </>
