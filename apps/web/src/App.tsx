@@ -97,14 +97,50 @@ function App() {
     };
   }, []);
 
-  const connectToTikTok = () => {
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionStatusText, setConnectionStatusText] = useState('Connect TikTok');
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Clear timeout on unmount
+    return () => {
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
+  }, []);
+
+  const connectToTikTok = (isRetry = false) => {
     if (ws && ws.readyState === WebSocket.OPEN && username) {
+      setIsConnecting(true);
+      if (!isRetry) {
+        setConnectionStatusText('Connecting Tiktok...');
+      }
       ws.send(JSON.stringify({ type: 'CONNECT_TIKTOK', username }));
+
+      // Set a timeout to retry if no signal received
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+
+      retryTimeoutRef.current = setTimeout(() => {
+        if (tiktokStatus !== 'CONNECTED') {
+          console.log("No signal from Render server. Retrying...");
+          setConnectionStatusText('No signal. Retrying...');
+          // Trigger retry with a longer delay so user can see the message
+          // We pass true to indicate it's a retry so we might handle text differently if needed
+          // But here we rely on the generic "Connecting..." or keep "Retrying..."
+          // If we want "Retrying..." to stick until next timeout, we can set isRetry logic.
+          // Let's just restart the process after 3s.
+          setTimeout(() => connectToTikTok(true), 3000);
+        }
+      }, 10000); // 10 seconds timeout
     }
   };
 
   const disconnectFromTikTok = () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
+      // Clear any pending retry
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      setIsConnecting(false);
+      setConnectionStatusText('Connect TikTok');
+
       ws.send(JSON.stringify({ type: 'DISCONNECT_TIKTOK' }));
       // Stop TTS
       window.speechSynthesis.cancel();
@@ -113,7 +149,19 @@ function App() {
     }
   };
 
-
+  // Listen for status changes to clear connecting state
+  useEffect(() => {
+    if (tiktokStatus === 'CONNECTED') {
+      setIsConnecting(false);
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+    } else if (tiktokStatus === 'DISCONNECTED') {
+      // If we were connecting and got disconnected (error), we might want to handle it
+      // But for now, we rely on the timeout to retry unless user manually disconnected
+    }
+  }, [tiktokStatus]);
 
   const isTiktokConnected = tiktokStatus === 'CONNECTED';
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -151,11 +199,15 @@ function App() {
             placeholder="TikTok Username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            disabled={isTiktokConnected}
+            disabled={isTiktokConnected || isConnecting}
           />
           {!isTiktokConnected ? (
-            <button className="btn-primary" onClick={connectToTikTok}>
-              Connect TikTok
+            <button
+              className={isConnecting ? "btn-connecting" : "btn-primary"}
+              onClick={() => connectToTikTok(false)}
+              disabled={isConnecting}
+            >
+              {connectionStatusText}
             </button>
           ) : (
             <button className="btn-danger" onClick={disconnectFromTikTok}>
