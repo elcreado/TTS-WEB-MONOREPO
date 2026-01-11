@@ -1,8 +1,18 @@
 import { WebSocketServer } from "ws";
+import express from "express";
 
+const app = express();
 const PORT = process.env.PORT || 8080;
 
-const wss = new WebSocketServer({ port: Number(PORT) });
+app.get("/keep-alive", (req, res) => {
+    res.status(200).send('Server is alive');
+});
+
+const server = app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
+
+const wss = new WebSocketServer({ server });
 
 const { WebcastPushConnection } = require('tiktok-live-connector');
 
