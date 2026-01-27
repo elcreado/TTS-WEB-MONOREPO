@@ -1,8 +1,15 @@
-import { WebSocketServer } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import express from "express";
+
+import { SignConfig } from "tiktok-live-connector";
+
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+const EULER_API_KEY = process.env.EULER_API_KEY;
 
 app.get("/keep-alive", (req, res) => {
     res.status(200).send('Server is alive');
@@ -14,12 +21,10 @@ const server = app.listen(PORT, () => {
 
 const wss = new WebSocketServer({ server });
 
-const { WebcastPushConnection } = require('tiktok-live-connector');
-
 wss.on("connection", (ws) => {
     console.log("Client connected");
 
-    let tiktokConnection: any;
+    let eulerConnection: WebSocket | undefined;
 
     ws.on("message", (message) => {
         const data = JSON.parse(message.toString());
@@ -27,71 +32,74 @@ wss.on("connection", (ws) => {
 
         if (data.type === 'CONNECT_TIKTOK') {
             const username = data.username;
-            console.log(`Connecting to TikTok user: ${username}`);
+            console.log(`Connecting to TikTok user via Eulerstream: ${username}`);
 
-            if (tiktokConnection) {
+            if (eulerConnection) {
                 console.log('Disconnecting previous session...');
-                tiktokConnection.disconnect();
-                tiktokConnection = undefined;
+                eulerConnection.close();
+                eulerConnection = undefined;
             }
 
-            // Create a wrapper to ensuring we only handle events for the current session
-            const currentConnection = new WebcastPushConnection(username);
-            tiktokConnection = currentConnection;
-            let isConnected = false;
+            const eulerUrl = `wss://ws.eulerstream.com?uniqueId=${username}&apiKey=${EULER_API_KEY}`;
+            console.log(`Connecting to: ${eulerUrl}`);
 
-            currentConnection.on('connected', (state: any) => {
-                console.log('TikTok Connected event received');
-                isConnected = true;
-                if (tiktokConnection === currentConnection) {
-                    ws.send(JSON.stringify({ type: 'TIKTOK_STATUS', status: 'CONNECTED' }));
+            eulerConnection = new WebSocket(eulerUrl);
+
+            eulerConnection.on('open', () => {
+                console.log('Eulerstream WebSocket Connected');
+                ws.send(JSON.stringify({ type: 'TIKTOK_STATUS', status: 'CONNECTED' }));
+            });
+
+            eulerConnection.on('message', (data) => {
+
+                try {
+                    const messageStr = data.toString();
+                    const eventData = JSON.parse(messageStr);
+
+                    eventData.messages.forEach((msg: any) => {
+                        if (msg.type === 'WebcastChatMessage') {
+                            const usuario = msg.data.user.uniqueId;
+                            const comentario = msg.data.comment;
+
+                            console.log(`${usuario}: ${comentario}`);
+                            ws.send(JSON.stringify({
+                                type: 'TIKTOK_CHAT',
+                                data: {
+                                    uniqueId: usuario,
+                                    comment: comentario
+                                }
+                            }));
+                        }
+                    })
+
+                } catch (err) {
+                    console.error('Error parsing Euler message:', err);
                 }
             });
 
-            currentConnection.connect().then((state: any) => {
-                console.log(`Connected to users roomId ${state.roomId}`);
-                // Status is handled by 'connected' event usually, but just in case
-                if (tiktokConnection === currentConnection && !isConnected) {
-                    isConnected = true;
-                    ws.send(JSON.stringify({ type: 'TIKTOK_STATUS', status: 'CONNECTED' }));
-                }
-            }).catch((err: any) => {
-                console.error('Failed to connect', err);
-                if (tiktokConnection === currentConnection) {
-                    if (isConnected) {
-                        console.warn('Connection promise failed but socket seems open. Ignoring error.');
-                    } else {
-                        ws.send(JSON.stringify({ type: 'TIKTOK_STATUS', status: 'ERROR', error: err.message }));
-                        tiktokConnection = undefined;
-                    }
-                }
+            eulerConnection.on('close', (code, reason) => {
+                console.log(`Eulerstream disconnected. Code: ${code}, Reason: ${reason}`);
+                ws.send(JSON.stringify({ type: 'TIKTOK_STATUS', status: 'DISCONNECTED' }));
             });
 
-            currentConnection.on('chat', (data: any) => {
-                if (tiktokConnection === currentConnection) {
-                    ws.send(JSON.stringify({ type: 'TIKTOK_CHAT', data: { uniqueId: data.uniqueId, comment: data.comment } }));
-                }
+            eulerConnection.on('error', (err) => {
+                console.error('Eulerstream Connection Error:', err);
+                ws.send(JSON.stringify({ type: 'TIKTOK_STATUS', status: 'ERROR', error: err.message }));
             });
 
-            currentConnection.on('disconnected', () => {
-                console.log('TikTok disconnected');
-                if (tiktokConnection === currentConnection) {
-                    ws.send(JSON.stringify({ type: 'TIKTOK_STATUS', status: 'DISCONNECTED' }));
-                }
-            });
         } else if (data.type === 'DISCONNECT_TIKTOK') {
-            if (tiktokConnection) {
-                console.log('Disconnecting from TikTok...');
-                tiktokConnection.disconnect();
-                tiktokConnection = undefined;
+            if (eulerConnection) {
+                console.log('Disconnecting from Eulerstream...');
+                eulerConnection.close();
+                eulerConnection = undefined;
                 ws.send(JSON.stringify({ type: 'TIKTOK_STATUS', status: 'DISCONNECTED' }));
             }
         }
     });
 
     ws.on('close', () => {
-        if (tiktokConnection) {
-            tiktokConnection.disconnect();
+        if (eulerConnection) {
+            eulerConnection.close();
         }
     });
 

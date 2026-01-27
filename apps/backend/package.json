@@ -13,6 +13,8 @@
   "license": "ISC",
   "packageManager": "pnpm@10.26.1",
   "dependencies": {
+    "@eulerstream/euler-api-sdk": "^0.1.7",
+    "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "tiktok-live-connector": "2.1.1-beta1",
     "ws": "^8.18.3"
