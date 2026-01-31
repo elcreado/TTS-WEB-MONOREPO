@@ -1,0 +1,23 @@
+{
+    "tiktok": {
+        "username": ""
+    },
+    "readChat": {
+        "enabled": true
+    },
+    "readEvents": {
+        "enabled": false
+    },
+    "readGifts": {
+        "enabled": false
+    },
+    "readLikes": {
+        "enabled": true
+    },
+    "readFollows": {
+        "enabled": true
+    },
+    "readShares": {
+        "enabled": true
+    }
+}

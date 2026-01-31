@@ -25,12 +25,25 @@ wss.on("connection", (ws) => {
     console.log("Client connected");
 
     let eulerConnection: WebSocket | undefined;
+    // Default config (will be updated by frontend)
+    let clientConfig: any = {
+        readChat: { enabled: false },
+        readEvents: { enabled: false },
+        readGifts: { enabled: false },
+        readLikes: { enabled: false },
+        readFollows: { enabled: false },
+        readShares: { enabled: false },
+        readJoins: { enabled: false }
+    };
 
     ws.on("message", (message) => {
         const data = JSON.parse(message.toString());
         console.log("Received:", data);
 
-        if (data.type === 'CONNECT_TIKTOK') {
+        if (data.type === 'UPDATE_CONFIG') {
+            clientConfig = data.config;
+            console.log("Updated Client Config:", clientConfig);
+        } else if (data.type === 'CONNECT_TIKTOK') {
             const username = data.username;
             console.log(`Connecting to TikTok user via Eulerstream: ${username}`);
 
@@ -57,18 +70,88 @@ wss.on("connection", (ws) => {
                     const eventData = JSON.parse(messageStr);
 
                     eventData.messages.forEach((msg: any) => {
+                        // Filter: CHAT MESSAGES
                         if (msg.type === 'WebcastChatMessage') {
-                            const usuario = msg.data.user.uniqueId;
-                            const comentario = msg.data.comment;
+                            if (clientConfig.readChat?.enabled) {
+                                const usuario = msg.data.user.uniqueId;
+                                const comentario = msg.data.comment;
 
-                            console.log(`${usuario}: ${comentario}`);
-                            ws.send(JSON.stringify({
-                                type: 'TIKTOK_CHAT',
-                                data: {
-                                    uniqueId: usuario,
-                                    comment: comentario
-                                }
-                            }));
+                                console.log(`${usuario}: ${comentario}`);
+                                ws.send(JSON.stringify({
+                                    type: 'TIKTOK_CHAT',
+                                    data: {
+                                        uniqueId: usuario,
+                                        comment: comentario
+                                    }
+                                }));
+                            }
+                        }
+                        // Filter: GIFT
+                        else if (msg.type === 'WebcastGiftMessage') {
+                            if (clientConfig.readGifts?.enabled) {
+                                const usuario = msg.data.user.uniqueId;
+                                const giftId = msg.data.giftId;
+                                const giftName = msg.data.gift?.name || "Gift"; // Fallback if name not available
+                                console.log(`${usuario} sent gift: ${giftName}`);
+
+                                ws.send(JSON.stringify({
+                                    type: 'TIKTOK_GIFT',
+                                    data: {
+                                        uniqueId: usuario,
+                                        giftName: giftName,
+                                        giftId: giftId
+                                    }
+                                }));
+                            }
+                        }
+
+                        // Filter: LIKE
+                        else if (msg.type === 'WebcastLikeMessage') {
+                            if (clientConfig.readLikes?.enabled) {
+                                ws.send(JSON.stringify({
+                                    type: 'TIKTOK_LIKE',
+                                    data: {
+                                        uniqueId: msg.data.user.uniqueId
+                                    }
+                                }));
+                            }
+                        }
+                        // Filter: MEMBER JOIN
+                        else if (msg.type === 'WebcastMemberMessage') {
+                            if (clientConfig.readJoins?.enabled) {
+                                console.log(`Member event: ${msg.data.user.uniqueId}`);
+
+                                const usuario = msg.data.user.uniqueId;
+
+                                ws.send(JSON.stringify({
+                                    type: 'JOIN_MESSAGE',
+                                    data: {
+                                        comment: `${usuario} se unio al chat`
+                                    }
+                                }));
+                            }
+                        }
+
+                        // Filter: SOCIAL (Follow, Share)
+                        else if (msg.type === 'WebcastSocialMessage') {
+                            // displayType: 'pm_mt_msg_viewer_follow_chain' or similar? 
+                            // Need to check msg structure. Often:
+                            // type: 1 -> Follow?
+                            // type: 3 -> Share?
+                            // We'll rely on text or specific fields if available. 
+                            // Using a safe heuristic if Eulerstream normalized it, otherwise raw.
+
+                            const displayType = msg.data.displayType || "";
+
+                            if (displayType.includes("follow") && clientConfig.readFollows?.enabled) {
+                                ws.send(JSON.stringify({
+                                    type: 'TIKTOK_FOLLOW',
+                                    data: {
+                                        comment: `${msg.data.user.uniqueId} se siguió`
+                                    }
+                                }));
+                            }
+
                         }
                     })
 
